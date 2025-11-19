@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>香港台风数据查询系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .section {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .stats-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            margin: 10px 0;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .tab-content {
+            padding: 20px 0;
+        }
+        .shelter-item {
+            border-left: 4px solid #007bff;
+            padding-left: 15px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid py-4" style="background: #f8f9fa; min-height: 100vh;">
+        <div class="container">
+            <!-- 标题 -->
+            <div class="text-center mb-4">
+                <h1 class="display-4">🌪️ 香港台风数据查询系统</h1>
+                <p class="lead">实时查询台风数据和庇护所信息</p>
+            </div>
+
+            <!-- 服务器状态 -->
+            <div class="section">
+                <h4>🔗 服务器连接</h4>
+                <div class="row">
+                    <div class="col-md-6">
+                        <input type="text" id="serverUrl" class="form-control" 
+                               value="http://localhost:8080" placeholder="输入Colab服务器地址">
+                    </div>
+                    <div class="col-md-6">
+                        <button onclick="testConnection()" class="btn btn-primary">测试连接</button>
+                        <span id="connectionStatus" class="ms-2"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 庇护所查询 -->
+            <div class="section">
+                <h4>🏠 庇护所查询</h4>
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <button onclick="getTotalShelters()" class="btn btn-outline-primary w-100">
+                            获取庇护所总数
+                        </button>
+                    </div>
+                    <div class="col-md-4">
+                        <button onclick="getDistrictCounts()" class="btn btn-outline-primary w-100">
+                            各地区数量统计
+                        </button>
+                    </div>
+                    <div class="col-md-4">
+                        <button onclick="getAllShelters()" class="btn btn-outline-primary w-100">
+                            显示所有庇护所
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <select id="districtSelect" class="form-select">
+                            <option value="">选择地区...</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <button onclick="getSheltersByDistrict()" class="btn btn-primary w-100">
+                            按地区查询
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="sheltersResults" class="mt-3"></div>
+            </div>
+
+            <!-- 台风数据 -->
+            <div class="section">
+                <h4>🌀 台风数据查询</h4>
+                
+                <!-- 统计卡片 -->
+                <div class="row" id="typhoonStats">
+                    <!-- 统计信息会动态加载到这里 -->
+                </div>
+
+                <!-- 年份标签 -->
+                <ul class="nav nav-tabs" id="yearTabs">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#" onclick="showAllTyphoons()">全部年份</a>
+                    </li>
+                    <!-- 年份标签会动态加载 -->
+                </ul>
+
+                <div class="tab-content">
+                    <div id="typhoonResults"></div>
+                </div>
+            </div>
+
+            <!-- 收藏功能 -->
+            <div class="section">
+                <h4>⭐ 收藏功能演示</h4>
+                <div class="row">
+                    <div class="col-md-4">
+                        <input type="number" id="userId" class="form-control" placeholder="输入用户ID" value="123">
+                    </div>
+                    <div class="col-md-4">
+                        <input type="text" id="userName" class="form-control" placeholder="输入用户名" value="测试用户">
+                    </div>
+                    <div class="col-md-4">
+                        <button onclick="toggleFavorite()" class="btn btn-warning w-100" id="favoriteBtn">
+                            收藏/取消收藏
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 加载指示器 -->
+            <div id="loading" class="loading">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">加载中...</span>
+                </div>
+                <p>查询中...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 配置
+        let BASE_URL = 'http://localhost:8080';
+
+        // DOM元素
+        const loadingElement = document.getElementById('loading');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const serverUrlInput = document.getElementById('serverUrl');
+        const districtSelect = document.getElementById('districtSelect');
+        const yearTabs = document.getElementById('yearTabs');
+        const typhoonStats = document.getElementById('typhoonStats');
+        const sheltersResults = document.getElementById('sheltersResults');
+        const typhoonResults = document.getElementById('typhoonResults');
+        const favoriteBtn = document.getElementById('favoriteBtn');
+
+        // 工具函数
+        function showLoading(show) {
+            loadingElement.style.display = show ? 'block' : 'none';
+        }
+
+        function showError(message) {
+            return `<div class="alert alert-danger">${message}</div>`;
+        }
+
+        function showSuccess(message) {
+            return `<div class="alert alert-success">${message}</div>`;
+        }
+
+        // 服务器连接
+        function updateBaseUrl() {
+            BASE_URL = serverUrlInput.value;
+        }
+
+        serverUrlInput.addEventListener('change', updateBaseUrl);
+
+        async function testConnection() {
+            showLoading(true);
+            try {
+                const response = await fetch(`${BASE_URL}/api/shelters/total`);
+                if (response.ok) {
+                    connectionStatus.innerHTML = '<span class="text-success">✅ 连接成功</span>';
+                } else {
+                    throw new Error('连接失败');
+                }
+            } catch (error) {
+                connectionStatus.innerHTML = '<span class="text-danger">❌ 连接失败</span>';
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // 庇护所相关函数
+        async function getTotalShelters() {
+            showLoading(true);
+            try {
+                const response = await fetch(`${BASE_URL}/api/shelters/total`);
+                const data = await response.json();
+                sheltersResults.innerHTML = showSuccess(`香港总共有 ${data.total} 个庇护所`);
+            } catch (error) {
+                sheltersResults.innerHTML = showError('查询失败: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function getDistrictCounts() {
+            showLoading(true);
+            try {
+                const response = await fetch(`${BASE_URL}/api/shelters/district-counts`);
+                const data = await response.json();
+                
+                let html = '<h5>各地区庇护所数量:</h5><div class="row">';
+                data.counts.forEach(item => {
+                    html += `<div class="col-md-3 mb-2"><div class="p-2 border rounded">${item.district}: ${item.count}个</div></div>`;
+                });
+                html += '</div>';
+                sheltersResults.innerHTML = html;
+            } catch (error) {
+                sheltersResults.innerHTML = showError('查询失败: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function getAllShelters() {
+            showLoading(true);
+            try {
+                const response = await fetch(`${BASE_URL}/api/shelters/all`);
+                const data = await response.json();
+                
+                let html = '<h5>所有庇护所:</h5>';
+                data.shelters.forEach(shelter => {
+                    html += `
+                        <div class="shelter-item">
+                            <strong>${shelter.centreName}</strong><br>
+                            <small>地区: ${shelter.district} | 地址: ${shelter.address} | 电话: ${shelter.tel}</small>
+                        </div>
+                    `;
+                });
+                sheltersResults.innerHTML = html;
+            } catch (error) {
+                sheltersResults.innerHTML = showError('查询失败: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function loadDistricts() {
+            try {
+                const response = await fetch(`${BASE_URL}/api/shelters/districts`);
+                const data = await response.json();
+                
+                districtSelect.innerHTML = '<option value="">选择地区...</option>';
+                data.districts.forEach(district => {
+                    districtSelect.innerHTML += `<option value="${district}">${district}</option>`;
+                });
+            } catch (error) {
+                console.error('加载地区列表失败:', error);
+            }
+        }
+
+        async function getSheltersByDistrict() {
+            const district = districtSelect.value;
+            if (!district) {
+                alert('请选择地区');
+                return;
+            }
+
+            showLoading(true);
+            try {
+                const response = await fetch(`${BASE_URL}/api/shelters/by-district?district=${encodeURIComponent(district)}`);
+                const data = await response.json();
+                
+                let html = `<h5>${district}地区的庇护所:</h5>`;
+                if (data.shelters.length === 0) {
+                    html += '<p>该地区没有找到庇护所</p>';
+                } else {
+                    data.shelters.forEach(shelter => {
+                        html += `
+                            <div class="shelter-item">
+                                <strong>${shelter.centreName}</strong><br>
+                                <small>地址: ${shelter.address} | 电话: ${shelter.tel}</small>
+                            </div>
+                        `;
+                    });
+                }
+                sheltersResults.innerHTML = html;
+            } catch (error) {
+                sheltersResults.innerHTML = showError('查询失败: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // 台风数据相关函数
+        async function loadTyphoonData() {
+            await loadOverallStats();
+            await loadAvailableYears();
+            await showAllTyphoons();
+        }
+
+        async function loadOverallStats() {
+            try {
+                const response = await fetch(`${BASE_URL}/api/typhoon/overall-stats`);
+                const data = await response.json();
+                
+                typhoonStats.innerHTML = `
+                    <div class="col-md-6">
+                        <div class="stats-card">
+                            <h5>最常见风向</h5>
+                            <h3>${data.most_frequent_direction || 'N/A'}</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="stats-card">
+                            <h5>平均风速</h5>
+                            <h3>${data.overall_avg_speed} km/h</h3>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('加载统计信息失败:', error);
+            }
+        }
+
+        async function loadAvailableYears() {
+            try {
+                const response = await fetch(`${BASE_URL}/api/typhoon/available-years`);
+                const data = await response.json();
+                
+                data.years.forEach(year => {
+                    const li = document.createElement('li');
+                    li.className = 'nav-item';
+                    li.innerHTML = `<a class="nav-link" href="#" onclick="showTyphoonsByYear(${year})">${year}</a>`;
+                    yearTabs.appendChild(li);
+                });
+            } catch (error) {
+                console.error('加载年份列表失败:', error);
+            }
+        }
+
+        async function showAllTyphoons() {
+            showLoading(true);
+            try {
+                const response = await fetch(`${BASE_URL}/api/typhoon/all-data`);
+                const data = await response.json();
+                displayTyphoonData(data.typhoons, '所有台风数据');
+            } catch (error) {
+                typhoonResults.innerHTML = showError('查询失败: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function showTyphoonsByYear(year) {
+            showLoading(true);
+            try {
+                const response = await fetch(`${BASE_URL}/api/typhoon/by-year?year=${year}`);
+                const data = await response.json();
+                displayTyphoonData(data.typhoons, `${year}年台风数据`);
+            } catch (error) {
+                typhoonResults.innerHTML = showError('查询失败: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function displayTyphoonData(typhoons, title) {
+            let html = `<h5>${title} (共${typhoons.length}条记录)</h5>`;
+            
+            if (typhoons.length === 0) {
+                html += '<p>没有找到台风数据</p>';
+            } else {
+                html += `
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>年份</th>
+                                    <th>日期</th>
+                                    <th>台风名称</th>
+                                    <th>方向</th>
+                                    <th>风速 (km/h)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                typhoons.forEach(typhoon => {
+                    html += `
+                        <tr>
+                            <td>${typhoon.tyYear}</td>
+                            <td>${typhoon.tyDate}</td>
+                            <td>${typhoon.tyName}</td>
+                            <td>${typhoon.tyDirect}</td>
+                            <td>${typhoon.tySpeed}</td>
+                        </tr>
+                    `;
+                });
+                
+                html += `</tbody></table></div>`;
+            }
+            
+            typhoonResults.innerHTML = html;
+        }
+
+        // 收藏功能
+        async function checkFavoriteStatus() {
+            const userId = document.getElementById('userId').value;
+            if (!userId) return;
+
+            try {
+                const response = await fetch(`${BASE_URL}/api/favorite/status?user_id=${userId}`);
+                const data = await response.json();
+                
+                if (data.is_favorite) {
+                    favoriteBtn.textContent = '取消收藏';
+                    favoriteBtn.classList.remove('btn-warning');
+                    favoriteBtn.classList.add('btn-secondary');
+                } else {
+                    favoriteBtn.textContent = '收藏';
+                    favoriteBtn.classList.remove('btn-secondary');
+                    favoriteBtn.classList.add('btn-warning');
+                }
+            } catch (error) {
+                console.error('检查收藏状态失败:', error);
+            }
+        }
+
+        async function toggleFavorite() {
+            const userId = document.getElementById('userId').value;
+            const userName = document.getElementById('userName').value;
+
+            if (!userId) {
+                alert('请输入用户ID');
+                return;
+            }
+
+            showLoading(true);
+            try {
+                const response = await fetch(`${BASE_URL}/api/favorite/toggle`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        user_id: parseInt(userId),
+                        user_name: userName
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.success !== undefined) {
+                    await checkFavoriteStatus(); // 更新按钮状态
+                    alert(data.success ? '收藏成功!' : '已取消收藏');
+                } else {
+                    alert('操作失败: ' + data.error);
+                }
+            } catch (error) {
+                alert('操作失败: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // 初始化
+        document.getElementById('userId').addEventListener('change', checkFavoriteStatus);
+        
+        // 页面加载完成后初始化
+        window.addEventListener('load', function() {
+            loadDistricts();
+            loadTyphoonData();
+            checkFavoriteStatus();
+        });
+    </script>
+</body>
+</html>
